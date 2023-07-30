@@ -250,7 +250,6 @@ public:
 		dist.resize(totalV); // 初始化记录矩阵
 		v2p.resize(totalV, -1);
 		v2copy.resize(totalV); // 检查是否为复写点
-		theta = 1000000000;	
 
 		for (int i=0; i<totalV; ++i){
 			dist[i].first  = -1;
@@ -320,7 +319,8 @@ public:
 	void AddVertexSelf(char *line){
 		// 三个元素  V_A, V_B, Label
 		int Vid_A, Vid_B;
-		char* s1 = strtok(line," ");
+		char *data = strtok(line,"=");
+		char* s1 = strtok(data," ");
 		int n=0; Vid_A = atoi(s1);
 		while(s1=strtok(NULL," ")){
 			n++;
@@ -347,7 +347,7 @@ public:
 			}
 		}
 
-		delete s1;
+
 	}
 
 	void all_LCR_vcompute(int flag){
@@ -435,8 +435,8 @@ public:
 		long long searchs = 0;
 		vector<int> cntts(_num_workers);
 		for (int i=0; i<vPath.size(); ++i){
-			// int minP = min_element(path1s.begin(),path1s.end()) - path1s.begin();
-			int minP = v2part[vPath[i].second[0]];
+			int minP = min_element(path1s.begin(),path1s.end()) - path1s.begin();
+			// int minP = v2part[vPath[i].second[0]];
 			path1s[minP] += vPath[i].first;
 
 			cntts[minP] += 1;
@@ -444,7 +444,7 @@ public:
 				srcs.push_back(vPath[i].second), searchs += vPath[i].first;
 		}
 
-		// cout<<"rank: "<<_my_rank<<"   space: "<<searchs<<endl;
+		cout<<"rank: "<<_my_rank<<"   space: "<<searchs<<endl;
 	}
 
 
@@ -459,8 +459,7 @@ public:
 
 
 	void DFS_Middle(int u, int hop, vector<int>& flag_, 
-					vector<int>& s_, 
-					vector<vector<int> >& subs){
+					vector<int>& s_, vector<vector<int> >& subs){
 		// 基于MiddlePaths完成路径拼接，subs中存储的都是2-hop的路径
 		s_.push_back(u); 
 		flag_[u] = 1;
@@ -479,7 +478,7 @@ public:
 		for (int i=0; i<(int)Local.size(); ++i){
 
 			int v = Local[i];
-	
+			
 			if (s_.size() + dist[v].second > hop ) break;
 
 			if (v == dst){
@@ -494,13 +493,7 @@ public:
 				}
 				flag_[v] = 0;
 			}else if (flag_[v] == 0){
-				if(v2part[v] != _my_rank){ 
-					s_.push_back(v);
-					transQueue.push_back(s_);
-					s_.pop_back();
-				}else{
-					DFS_Middle(v, hop, flag_, s_, subs);					
-				}
+				DFS_Middle(v, hop, flag_, s_, subs);
 			}
 		}
 
@@ -515,7 +508,6 @@ public:
 
 	void GraphRestruct(){
 		graphs.resize(active_nums);
-		p2v.resize(active_nums);
 		Locals.resize(_num_workers);
 
 		for (int i=0; i<vertexes.size(); ++i){
@@ -539,9 +531,7 @@ public:
 		for (int i=0; i<Locals.size(); ++i){
 			for (int j = 0; j < Locals[i].size(); ++j){
 				vector<int>& adjList = Locals[i][j];
-				int idd = adjList[adjList.size()-1];
-				int place = v2p[idd];
-				p2v[place] = idd; // 反映射
+				int place = v2p[adjList[adjList.size()-1]];
 
 				adjList.pop_back();
 
@@ -552,17 +542,6 @@ public:
 		}
 	}
 
-	void GraphDelete(){
-
-		for (int i=0; i<active_nums; ++i){
-			int vid = p2v[i]; // 本身的id
-			int vpart = v2part[vid];
-
-			if (vpart != _my_rank){
-				graphs[i].clear();
-			}
-		}
-	}
 
 	void PathCollect(){
 		vector<int> pth(2);
@@ -751,6 +730,25 @@ public:
 			ii += 1;
 		}
 
+		// const char *part_path = params.partition_path.c_str(); 
+		// infile.open(part_path);
+		// string s;
+		// if(!infile.is_open()){
+		// 	cout<<"No such file!"<<endl;
+		// 	exit(-1);
+		// }
+
+		// int nnn = 0;
+		// while(getline(infile, s)){
+		// 	char* part = new char[strlen(s.c_str())+1];
+		// 	strcpy(part, s.c_str());
+		// 	v2part.push_back( atoi(part) );
+		// 	v2degree.push_back(0);
+		// 	delete part;
+		// 	nnn += 1;
+		// }
+
+
 		k1 = params.src, k2 = params.dst;
 		khop = params.khop;
 		kk1 = 2, kk2 = 1;
@@ -845,14 +843,11 @@ public:
 
 		blockInit(vertexes, blocks); //setting user-defined block fields, 用户可以指定给block构建什么信息
 		
-		// src = 0, dst = 9;
-
 		vmessage_buffer->init(vertexes);
 		bmessage_buffer->init(blocks);
 
 		worker_barrier();
-        
-		long long step_vmsg_num;
+       long long step_vmsg_num;
         long long step_bmsg_num;
         long long global_vmsg_num = 0;
         long long global_bmsg_num = 0;
@@ -963,6 +958,7 @@ if (compute_mode == VB_COMP){
 			reorder_neighbors(i, vertexes[vert2place[i]]->value().Edge);
 		}
 	}
+
 	
 	// ===  收集路径信息  ===
 	PathCollect();
@@ -977,122 +973,55 @@ if (compute_mode == VB_COMP){
 	// ==== 完成srcVertex中任务的划分 ====
 	TaskDivision();
 
-	// ==== 把重构图再重新基于分区进行划分 ====
-	GraphDelete();
-	
+	// // // === 各节点并行枚举路径  ===
+	kmax = khop - kk1;
+
 	vector<int> flag1, s1;
 	flag1.resize(totalV);
 	flag1[src] = 1, flag1[dst] = 1;
-	kmax = khop - kk1;
+	for (int i=0; i<srcVList.size(); ++i){
+		vector<int>& vL = srcVList[i];
+		int vid = vL[vL.size()-1], v2 = vL[0];
 
-	int beg = 0;
-	while (1){
-		
-		int batch1 = 30;
-		if (beg + batch1 > srcVList.size()) 
-			batch1 = srcVList.size() - beg;
-
-		for (int i=beg; i<beg+batch1; ++i){
-			vector<int>& vL = srcVList[i];
-			int vid = vL[vL.size()-1], v2 = vL[0];
-
-			// == 访问完 当前分区内部的所有路径，并将待访问的路径存储到queue中
-			if (v2part[vid] != _my_rank){
-				transQueue.push_back(vL);
-			}else{
-				for (int ii=0; ii<vL.size()-1; ++ii) 
-					flag1[vL[ii]] = 1;
-				
-				vL.pop_back();
-				DFS_Middle(vid, kmax, flag1, vL, MiddlePaths[v2]);
-
-				for (int ii=0; ii<vL.size(); ++ii) 
-					flag1[vL[ii]] = 0;
-			}
+		for (int ii=0; ii<vL.size()-1; ++ii){
+			flag1[vL[ii]] = 1;
 		}
-		
-		int begin = 0; 
-		while(1){
-			int batch = 10000;
-			subpaths.resize(_num_workers);
-			cnts = transQueue.size();
-			
-			if (begin+batch > cnts) 
-				batch = cnts - begin;
-			
-			for (int ij=begin; ij<batch+begin; ij++){
-				vector<int>& q1 = transQueue[ij]; // 传输出去的
-				int vv = q1[q1.size()-1];
 
-				subpaths[v2part[vv]].push_back(q1);
-			}
+		vL.pop_back();
 
-			all_to_all(subpaths);
-			worker_barrier();
+		DFS_Middle(vid, kmax, flag1, vL, MiddlePaths[v2]);
 
-			// ==== taskQueue 接受任务  ====
-			for(int ii=0; ii<_num_workers; ++ii){
-				taskQueue.insert(taskQueue.end(), subpaths[ii].begin(), subpaths[ii].end());
-			}
-
-			vector<int> flag2(totalV, 0);
-			for (int cnt=0; cnt<taskQueue.size(); ++cnt){
-				
-				flag2[src] = 1, flag2[dst] = 1;
-				vector<int>& vL1 = taskQueue[cnt];
-
-				int vid1= vL1[vL1.size()-1], v2 = vL1[0];
-
-				for (int ii=0; ii<vL1.size()-1; ++ii){
-					flag2[vL1[ii]] = 1;
-				}
-
-				vL1.pop_back();
-
-				DFS_Middle(vid1, kmax, flag2, vL1, MiddlePaths[v2]);
-
-				for (int ii=0; ii<vL1.size(); ++ii){
-					flag2[vL1[ii]] = 0;
-				}
-			}
-			
-			vector<vector<vector<int>>>().swap(subpaths);
-			vector<vector<int>>().swap(taskQueue);
-
-			worker_barrier();
-			begin += batch;
-
-			long long queuesize = all_sum_LL(transQueue.size()-begin);
-
-			if (queuesize <= 0)
-				break;
+		for (int ii=0; ii<vL.size(); ++ii){
+			flag1[vL[ii]] = 0;
 		}
-		
-		global_vmsg_num += transQueue.size()*4*6;
 
+	} 
 
-		beg += batch1;
-		vector<vector<int>>().swap(transQueue);
+	worker_barrier();
 
-		int flgs = all_sum(srcVList.size() - beg);
-		if (flgs == 0) break;
-	}
-
-	// === 当所有机器上queue的任务都完成之后，程序结束  ===
-	
-	long long comm = float(global_vmsg_num)/(1024*1024*8);
 	long long totalPaths = all_sum_LL(paths);
-	float ttt = omp_get_wtime()-t;
 
-	if (_my_rank == 0){
-		cout<<"Paths: "<<totalPaths<<endl;
+
+	long edgess = all_sum(active_Edges);
+	float ttt = omp_get_wtime()-t;
+	if (_my_rank == 0){ // 只需要存储边界图的所有边
+		string Bound_filename = "ThreeJ_WB_"+to_string(_num_workers);
+		const char *file = Bound_filename.c_str();
+		fstream outfileX;
+		outfileX.open(file, ios::out);
+
+
+		
+		long long comm = float(global_vmsg_num)/(1024*1024*8);
+		long long comm2 = float(edgess/2*_num_workers+active_nums*_num_workers+active_tasks)*4/(1024*1024*8);
+
+		cout<<"Paths: "<<totalPaths<<"  "<<comm<<"  "<<comm+comm2<<endl;
 		cout<<"time: "<<ttt<<endl;
-		cout<<"Communication:  "<<comm<<endl;
+		outfileX<<"Paths: "<<totalPaths<<"  "<<comm+comm2<<endl;
+		outfileX<<"time: "<<ttt<<endl;
 	}
 
 }
-
-
 	}
 };
 
@@ -1113,11 +1042,6 @@ void SetLCR_Construction(string in_path, string partition_path, string out_path,
 
 	worker.run_LCR(param);
 };
-
-
-
-
-
 
 
 
